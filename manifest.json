@@ -1,0 +1,11 @@
+{
+	"id": "advanced-alias",
+	"name": "Advanced Alias",
+	"version": "0.0.1",
+	"minAppVersion": "0.15.0",
+	"description": "Add advanced alias to Obsidian.",
+	"author": "Tim Schrader",
+	"authorUrl": "",
+	"fundingUrl": "",
+	"isDesktopOnly": false
+}
