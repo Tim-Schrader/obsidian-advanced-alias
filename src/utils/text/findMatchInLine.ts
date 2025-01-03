@@ -16,16 +16,19 @@ export default function findMatchInLine(
 ): { start: number; end: number; validContent: string } | null {
 	let match: RegExpExecArray | null;
 
-	const searchRegexCopy = new RegExp(search.searchRegex, "g");
+	const searchRegexCopy = new RegExp(
+		search.searchRegex.source,
+		search.searchRegex.flags
+	);
 
 	// Check for all matches in the line
 	while ((match = searchRegexCopy.exec(lineText)) !== null) {
 		const matchStart = match.index;
 		const matchEnd = matchStart + match[0].length;
-        
+
 		// Check if the cursor is inside the match
 		if (cursorPos > matchStart && cursorPos < matchEnd) {
-			const validContent = (match[1] === undefined) ? "" : match[1];
+			const validContent = match[1] === undefined ? "" : match[1];
 			const start = matchStart + search.leftIdentifier.length;
 			const end = matchEnd - search.rightIdentifier.length;
 

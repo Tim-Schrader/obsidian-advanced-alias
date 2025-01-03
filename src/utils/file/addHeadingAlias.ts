@@ -11,14 +11,17 @@ import { FileManager, Notice, TFile } from "obsidian";
 export default function addHeadingAlias(
 	filemanager: FileManager,
 	file: TFile,
-	heading: string,
+	heading: {
+		text: string;
+		level: number;
+	},
 	alias: string
 ): void {
 	filemanager.processFrontMatter(
 		file,
 		(frontmatter: {
 			["heading-aliases"]:
-				| { heading: string; alias: string }[]
+				| { heading: string; alias: string; level: number }[]
 				| undefined;
 		}) => {
 			if (!frontmatter["heading-aliases"]) {
@@ -27,15 +30,20 @@ export default function addHeadingAlias(
 			if (
 				!frontmatter["heading-aliases"].some(
 					(headingAlias) =>
-						headingAlias.heading === heading &&
-						headingAlias.alias === alias
+						headingAlias.heading === heading.text &&
+						headingAlias.alias === alias &&
+						headingAlias.level === heading.level
 				)
 			) {
-                frontmatter["heading-aliases"].push({ heading, alias})
-                new Notice("Alias added");
+				frontmatter["heading-aliases"].push({
+					heading: heading.text,
+					alias,
+					level: heading.level,
+				});
+				new Notice("Alias added");
 			} else {
-                new Notice("Alias already exists");
-            }
+				new Notice("Alias already exists");
+			}
 		}
 	);
 }

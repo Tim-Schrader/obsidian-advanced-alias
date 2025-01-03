@@ -1,4 +1,3 @@
-
 /**
  * Retrieves the current link from the given line of text and cursor position.
  *

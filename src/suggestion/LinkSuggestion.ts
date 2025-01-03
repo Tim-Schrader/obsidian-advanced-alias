@@ -5,31 +5,41 @@ import {
 	EditorSuggestTriggerInfo,
 	EditorSuggestContext,
 	Instruction,
-	setIcon,
 	App,
-    Notice,
+	Notice,
 } from "obsidian";
-import { getSearchRegex, regexFromString } from "../utils/regex";
-import { getSuggestionsFromHeadingAliases } from "./utils/getSuggestionFromHeadingAliases";
 import AdvancedAliasPlugin from "main";
-import { getSuggestionsFromAliases } from "./utils/getSuggestionFromAliases";
-import findMatchInLine from "./utils/findMatchInLine";
+import findMatchInLine from "../utils/text/findMatchInLine";
+import getMatchingFiles from "../utils/search/getMatchingFiles";
+import getMatchingFileAliases from "src/utils/search/getMatchingFileAliases";
+import getMatchingHeadings from "src/utils/search/getMatchingHeadings";
+import getMatchingHeadingAliases from "src/utils/search/getMatchingHeadingAliases";
+import getQuery from "../utils/search/getQuery";
+import regexFromString from "src/utils/regex/regexFromString";
+import createComplexSuggestionItem from "src/utils/suggestion/createComplexSuggestionItem";
 
 export interface HeadingAliasesInterface {
 	alias: string;
 	heading: string;
+	level: number;
 }
 
-export interface AllSuggestionValueInterface {
+export interface LinkSuggestionValueInterface {
 	alias: string | null;
-	heading: string | null;
-	file: string;
+	heading: {
+		text: string;
+		level: number;
+	} | null;
+	file: {
+		name: string;
+		path: string;
+	};
 }
 
 /**
  * Suggestion class for handling suggestions for links.
  */
-export default class AllLinkSuggestion extends EditorSuggest<any> {
+export default class LinkSuggestion extends EditorSuggest<any> {
 	private plugin: AdvancedAliasPlugin;
 
 	constructor(app: App, plugin: AdvancedAliasPlugin) {
@@ -39,10 +49,10 @@ export default class AllLinkSuggestion extends EditorSuggest<any> {
 
 	/* <--- Static Properties ---> */
 	public get leftIdentifier(): string {
-		return this.plugin.settings.allLink.leftIdentifier;
+		return this.plugin.settings.search.leftIdentifier;
 	}
 	public get rightIdentifier(): string {
-		return this.plugin.settings.allLink.rightIdentifier;
+		return this.plugin.settings.search.rightIdentifier;
 	}
 
 	public get leftRegex(): RegExp {
@@ -53,7 +63,7 @@ export default class AllLinkSuggestion extends EditorSuggest<any> {
 	}
 
 	public static readonly validContentRegex =
-		/(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|[a-zA-Z0-9\s\-_\/\.:äöüÄÖÜßéáíóúçñÊÈëïôû])+/g;
+		/([\p{L}\p{N}\p{S}\p{P}\p{M}\s])+/gu;
 
 	/**
 	 * Regular expression to match the full pattern of a link search.
@@ -62,8 +72,8 @@ export default class AllLinkSuggestion extends EditorSuggest<any> {
 	 */
 	public get allAliasSearchRegex(): RegExp {
 		return new RegExp(
-			`${this.leftRegex.source}(${AllLinkSuggestion.validContentRegex.source})?${this.rightRegex.source}`,
-			"g"
+			`${this.leftRegex.source}(${LinkSuggestion.validContentRegex.source})?${this.rightRegex.source}`,
+			LinkSuggestion.validContentRegex.flags
 		);
 	}
 
@@ -71,7 +81,7 @@ export default class AllLinkSuggestion extends EditorSuggest<any> {
 	 * The property used in the frontmatter to safe all the aliases.
 	 */
 	private static readonly frontmatterKeys = {
-		alias: ["alias", "aliases"],
+		fileAlias: ["alias", "aliases"],
 		headingAlias: ["heading-aliases", "heading-alias"],
 	};
 
@@ -82,9 +92,17 @@ export default class AllLinkSuggestion extends EditorSuggest<any> {
 	 * @static
 	 * @readonly
 	 */
-	private static readonly instructions: Instruction[] = [
-		{ command: "↵", purpose: "to accept" },
-	];
+	private static readonly instructions: {
+		file: Instruction;
+		heading: Instruction;
+		alias: Instruction;
+		accept: Instruction;
+	} = {
+		file: { command: "Type *", purpose: "to search files" },
+		heading: { command: "Type #", purpose: "to search headings" },
+		alias: { command: "Type @", purpose: "to search aliases" },
+		accept: { command: "↵", purpose: "to accept" },
+	};
 
 	/* <--- Methods ---> */
 
@@ -103,31 +121,13 @@ export default class AllLinkSuggestion extends EditorSuggest<any> {
 		const lineText = editor.getLine(cursor.line);
 		const cursorPos = cursor.ch;
 
-		const match = findMatchInLine(lineText, cursorPos, {
+		const search = {
 			leftIdentifier: this.leftIdentifier,
 			rightIdentifier: this.rightIdentifier,
 			searchRegex: this.allAliasSearchRegex,
-		});
+		};
 
-		const leftHeadingIdentifier =
-			this.plugin.settings.headingAlias.leftIdentifier;
-		const rightHeadingIdentifier =
-			this.plugin.settings.headingAlias.rightIdentifier;
-		const headingSearchRegex = getSearchRegex(
-			leftHeadingIdentifier,
-			rightHeadingIdentifier
-		);
-
-		// dont render if already searching for heading alias
-		const headingMatch = findMatchInLine(lineText, cursorPos, {
-			leftIdentifier: leftHeadingIdentifier,
-			rightIdentifier: rightHeadingIdentifier,
-			searchRegex: headingSearchRegex,
-		});
-
-		if (headingMatch) {
-			return null;
-		}
+		const match = findMatchInLine(lineText, cursorPos, search);
 
 		if (match) {
 			const { start, end, validContent } = match;
@@ -151,53 +151,75 @@ export default class AllLinkSuggestion extends EditorSuggest<any> {
 	 */
 	getSuggestions(
 		context: EditorSuggestContext
-	): AllSuggestionValueInterface[] {
-		const suggestions: AllSuggestionValueInterface[] = [];
-		const query = context.query.toLowerCase();
+	): LinkSuggestionValueInterface[] {
+		const suggestions: LinkSuggestionValueInterface[] = [];
+
+		const ignoreCase = this.plugin.settings.search.ignoreCase;
+		const query = context.query;
 
 		const files = this.app.vault.getMarkdownFiles();
 
-		files.forEach((file) => {
-			const metadata = this.app.metadataCache.getFileCache(file);
-			const fileName = file.basename;
+		const { queryText, queryType, searchOptions } = getQuery(query);
 
-			// search for file names
-			if (fileName.toLowerCase().includes(query)) {
-				suggestions.push({
-					alias: null,
-					heading: null,
-					file: fileName,
-				});
-			}
+		// search for file names
+		if (queryType.file) {
+			const matchingFiles = getMatchingFiles(
+				files,
+				queryText,
+				ignoreCase
+			);
+			suggestions.push(...matchingFiles);
+		}
 
-			// search for aliases
-			for (const key of AllLinkSuggestion.frontmatterKeys.alias) {
-				if (metadata?.frontmatter?.[key]) {
-					const aliases = metadata.frontmatter[key];
+		// search for file aliases
+		if (queryType.fileAlias) {
+			const aliasSuggestions = getMatchingFileAliases(
+				files,
+				queryText,
+				ignoreCase,
+				LinkSuggestion.frontmatterKeys.fileAlias,
+				this.app
+			);
+			suggestions.push(...aliasSuggestions);
+		}
 
-                    console.log(aliases);
+		// search for headings
+		if (queryType.heading) {
+			const headingSuggestions = getMatchingHeadings(
+				files,
+				queryText,
+				ignoreCase,
+				this.app
+			);
+			suggestions.push(...headingSuggestions);
+		}
 
-					suggestions.push(
-						...getSuggestionsFromAliases(aliases, query, fileName)
-					);
-				}
-			}
+		// search for heading aliases
+		if (queryType.headingAlias) {
+			const headingAliasSuggestions = getMatchingHeadingAliases(
+				files,
+				queryText,
+				ignoreCase,
+				LinkSuggestion.frontmatterKeys.headingAlias,
+				this.app
+			);
+			suggestions.push(...headingAliasSuggestions);
+		}
 
-			// search for heading aliases
-			for (const key of AllLinkSuggestion.frontmatterKeys.headingAlias) {
-				if (metadata?.frontmatter?.[key]) {
-					const headingAliases = metadata.frontmatter[key];
+		// set instructions
+		const instructions: Instruction[] = [];
 
-					suggestions.push(
-						...getSuggestionsFromHeadingAliases(
-							headingAliases,
-							query,
-							fileName
-						)
-					);
-				}
-			}
-		});
+		if (!searchOptions.file && !searchOptions.heading) {
+			instructions.push(LinkSuggestion.instructions.file);
+			instructions.push(LinkSuggestion.instructions.heading);
+		}
+		if (!searchOptions.alias) {
+			instructions.push(LinkSuggestion.instructions.alias);
+		}
+		instructions.push(LinkSuggestion.instructions.accept);
+
+		this.setInstructions(instructions);
+
 		return suggestions;
 	}
 
@@ -209,11 +231,10 @@ export default class AllLinkSuggestion extends EditorSuggest<any> {
 	 * @see Implementation of abstract function {@link https://docs.obsidian.md/Reference/TypeScript+API/PopoverSuggest/renderSuggestion renderSuggestion} in EditorSuggest
 	 */
 	renderSuggestion(
-		value: AllSuggestionValueInterface,
+		value: LinkSuggestionValueInterface,
 		el: HTMLElement
 	): void {
 		createComplexSuggestionItem(el, value);
-		this.setInstructions(AllLinkSuggestion.instructions);
 	}
 
 	/**
@@ -224,7 +245,7 @@ export default class AllLinkSuggestion extends EditorSuggest<any> {
 	 * @see Implementation of abstract function {@link https://docs.obsidian.md/Reference/TypeScript+API/PopoverSuggest/selectSuggestion selectSuggestion} in EditorSuggest
 	 */
 	selectSuggestion(
-		value: AllSuggestionValueInterface,
+		value: LinkSuggestionValueInterface,
 		evt: MouseEvent | KeyboardEvent
 	): void {
 		const editor = this.context?.editor;
@@ -246,17 +267,25 @@ export default class AllLinkSuggestion extends EditorSuggest<any> {
 			return;
 		}
 
-        if (!value.file) {
-            new Notice("Invalid file.");
-        }
+		if (!value.file) {
+			new Notice("Invalid file.");
+		}
 
 		let replacement: string;
 		if (!value.alias) {
-			replacement = `[[${value.file}${value.heading ? value.heading : ""}]]`;
+			replacement = `[[${value.file.path + value.file.name}${
+				value.heading
+					? "#".repeat(value.heading.level) + value.heading.text
+					: ""
+			}]]`;
 		} else {
-            replacement = `[[${value.file}${value.heading ? value.heading : ""}|${value.alias}]]`;
-        }
-        
+			replacement = `[[${value.file.path + value.file.name}${
+				value.heading
+					? "#".repeat(value.heading.level) + value.heading.text
+					: ""
+			}|${value.alias}]]`;
+		}
+
 		// Extend range to include the full regex match
 		start.ch -= this.leftIdentifier.length;
 		end.ch += this.rightIdentifier.length;
@@ -271,40 +300,3 @@ export default class AllLinkSuggestion extends EditorSuggest<any> {
 		editor.setCursor(newCursorPos);
 	}
 }
-
-/**
- * Creates a styled suggestion item in the suggestion popover.
- *
- * @param el - The HTML element of a singular suggestion item
- * @param value - The value to display in the suggestion item
- */
-export const createComplexSuggestionItem = (
-	el: HTMLElement,
-	value: AllSuggestionValueInterface
-) => {
-	const { alias, heading, file } = value;
-	let note: string;
-
-	if (!alias) {
-		el.setText(file);
-		return;
-	} else if (!heading) {
-		note = file;
-	} else {
-		const formattedHeading = heading.replace(/#/g, " #");
-		note = file + formattedHeading;
-	}
-
-	el.addClass("mod-complex");
-
-	const content = el.createEl("div", { cls: "suggestion-content" });
-	content.createEl("div", { text: alias, cls: "suggestion-title" });
-	content.createEl("div", { text: note, cls: "suggestion-note" });
-
-	const aux = el.createEl("div", { cls: "suggestion-aux" });
-	const flair = aux.createEl("span", {
-		cls: "suggestion-flair",
-		attr: { "aria-label": "Alias" },
-	});
-	setIcon(flair, "forward");
-};

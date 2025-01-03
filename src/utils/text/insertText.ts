@@ -2,7 +2,7 @@ import { Editor } from "obsidian";
 
 /**
  * Inserts text at current cursor position.
- * 
+ *
  * @param editor
  * @param text - The text to be inserted (is inserted left to the cursor)
  * @param rightText - Optional text to be inserted after the cursor

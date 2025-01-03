@@ -1,4 +1,4 @@
-import { findMatchInLine } from "src/suggestion/utils/findMatchInLine";
+import findMatchInLine from "src/utils/text/findMatchInLine";
 
 const leftIdentifier = "((#";
 const rightIdentifier = "))";
@@ -63,16 +63,16 @@ const testcases = [
 		cursorPos: 24,
 		expected: null,
 	},
-    {
-        name: "empty match",
-        lineText: "beginning text ((#)) end text",
-        cursorPos: 18,
-        expected: { start: 18, end: 18, validContent: "" },
-    }
+	{
+		name: "empty match",
+		lineText: "beginning text ((#)) end text",
+		cursorPos: 18,
+		expected: { start: 18, end: 18, validContent: "" },
+	},
 ];
 
 for (const { name, lineText, cursorPos, expected } of testcases) {
-    test(name, () => {
-        expect(findMatchInLine(lineText, cursorPos, search)).toEqual(expected);
-    });
+	test(name, () => {
+		expect(findMatchInLine(lineText, cursorPos, search)).toEqual(expected);
+	});
 }
