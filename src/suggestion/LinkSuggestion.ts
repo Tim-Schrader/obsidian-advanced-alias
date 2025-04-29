@@ -161,17 +161,7 @@ export default class LinkSuggestion extends EditorSuggest<any> {
 
 		const { queryText, queryType, searchOptions } = getQuery(query);
 
-		// search for file names
-		if (queryType.file) {
-			const matchingFiles = getMatchingFiles(
-				files,
-				queryText,
-				ignoreCase
-			);
-			suggestions.push(...matchingFiles);
-		}
-
-		// search for file aliases
+        // search for file aliases
 		if (queryType.fileAlias) {
 			const aliasSuggestions = getMatchingFileAliases(
 				files,
@@ -183,18 +173,7 @@ export default class LinkSuggestion extends EditorSuggest<any> {
 			suggestions.push(...aliasSuggestions);
 		}
 
-		// search for headings
-		if (queryType.heading) {
-			const headingSuggestions = getMatchingHeadings(
-				files,
-				queryText,
-				ignoreCase,
-				this.app
-			);
-			suggestions.push(...headingSuggestions);
-		}
-
-		// search for heading aliases
+        // search for heading aliases
 		if (queryType.headingAlias) {
 			const headingAliasSuggestions = getMatchingHeadingAliases(
 				files,
@@ -204,6 +183,28 @@ export default class LinkSuggestion extends EditorSuggest<any> {
 				this.app
 			);
 			suggestions.push(...headingAliasSuggestions);
+		}
+
+		// search for file names
+		if (queryType.file) {
+			const matchingFiles = getMatchingFiles(
+				files,
+				queryText,
+				ignoreCase
+			);
+			suggestions.push(...matchingFiles);
+		}
+
+
+		// search for headings
+		if (queryType.heading) {
+			const headingSuggestions = getMatchingHeadings(
+				files,
+				queryText,
+				ignoreCase,
+				this.app
+			);
+			suggestions.push(...headingSuggestions);
 		}
 
 		// set instructions
